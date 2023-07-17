@@ -1,9 +1,9 @@
-use std::{collections::{HashMap, btree_map::Values}, ops::Index};
+use std::{collections::HashMap, error::Error};
 
 use calamine::{open_workbook, Xlsx, Reader};
-use chrono::{NaiveDate, NaiveTime, Duration, Datelike};
+use chrono::{NaiveDate, NaiveTime, Duration, Datelike, Weekday};
 use configparser::ini::Ini;
-use rust_xlsxwriter::{XlsxError, Workbook, Format, ExcelDateTime};
+use rust_xlsxwriter::{Workbook, Format, ExcelDateTime, Color, FormatBorder};
 
 #[derive(Debug, PartialEq)]
 enum Mode {
@@ -40,23 +40,23 @@ impl SensorEntry {
             None => return None,
         };
 
-        let vigorus = match extract_Y_N(&data[3]) {
+        let mut vigorus = match extract_Y_N(&data[3]) {
             Some(d) => d,
             None => return None,
         };
-        let moderate = match extract_Y_N(&data[4]) {
+        let mut moderate = match extract_Y_N(&data[4]) {
             Some(d) => d,
             None => return None,
         };
-        let low = match extract_Y_N(&data[5]) {
+        let mut low = match extract_Y_N(&data[5]) {
             Some(d) => d,
             None => return None,
         };
-        let sedentary = match extract_Y_N(&data[6]) {
+        let mut sedentary = match extract_Y_N(&data[6]) {
             Some(d) => d,
             None => return None,
         };
-        let con_vig = match extract_Y_N(&data[7]) {
+        let mut con_vig = match extract_Y_N(&data[7]) {
             Some(d) => d,
             None => return None,
         };
@@ -197,6 +197,46 @@ fn main() {
         },
     };
 
+    // format - time_format 
+    let time_format_ref = match format_config.get("time") {
+        Some(f) => f,
+        None => {
+            println!("Error: Can't find \"time\" attribute in the [format] section of config.ini");
+            return;
+        },
+    };
+
+    let time_format = match time_format_ref {
+        Some(f) => f.clone(),
+        None => {
+            println!("Error: Can't find \"time\" attribute in the [format] section of config.ini");
+            return;
+        },
+    };
+
+    // format - weekend_color 
+    let weekend_color_ref = match format_config.get("weekend_color") {
+        Some(f) => f,
+        None => {
+            println!("Error: Can't find \"weekend_color\" attribute in the [format] section of config.ini");
+            return;
+        },
+    };
+
+    let weekend_color: u32 = match weekend_color_ref {
+        Some(f) => match u32::from_str_radix(f, 16) {
+            Ok(v) => v,
+            Err(_) => {
+                println!("Error: Can't parse \"weekend_color\" attribute in the [parsing] section of config.ini. Must be an hex RGB.");
+                return;
+            },
+        }
+        None => {
+            println!("Error: Can't find \"weekend_color\" attribute in the [format] section of config.ini");
+            return;
+        },
+    };
+
     // parsing - skip_days_num
     let skip_days_num_ref = match parsing_config.get("skip_days_num") {
         Some(f) => f,
@@ -232,7 +272,7 @@ fn main() {
     let day_window_size: i32 = match day_window_size_ref {
         Some(f) => match f.clone().parse() {
             Ok(v) => v,
-            Err(e) => {
+            Err(_) => {
                 println!("Error: Can't parse \"day_window_size\" attribute in the [parsing] section of config.ini. Must be an integer");
                 return;
             },
@@ -255,8 +295,77 @@ fn main() {
     let epoch_seconds: i32 = match epoch_seconds_ref {
         Some(f) => match f.clone().parse() {
             Ok(v) => v,
-            Err(e) => {
+            Err(_) => {
                 println!("Error: Can't parse \"epoch_seconds\" attribute in the [parsing] section of config.ini. Must be an integer");
+                return;
+            },
+        },
+        None => {
+            println!("Error: Can't find \"epoch_seconds\" attribute in the [parsing] section of config.ini");
+            return;
+        },
+    };
+
+    // parsing - cutpoint_low
+    let cutpoint_low_ref = match parsing_config.get("cutpoint_low") {
+        Some(f) => f,
+        None => {
+            println!("Error: Can't find \"cutpoint_low\" attribute in the [parsing] section of config.ini");
+            return;
+        },
+    };
+
+    let cutpoint_low: i32 = match cutpoint_low_ref {
+        Some(f) => match f.clone().parse() {
+            Ok(v) => v,
+            Err(_) => {
+                println!("Error: Can't parse \"cutpoint_low\" attribute in the [parsing] section of config.ini. Must be an integer");
+                return;
+            },
+        },
+        None => {
+            println!("Error: Can't find \"cutpoint_low\" attribute in the [parsing] section of config.ini");
+            return;
+        },
+    };
+
+    // parsing - cutpoint_moderate
+    let cutpoint_moderate_ref = match parsing_config.get("cutpoint_moderate") {
+        Some(f) => f,
+        None => {
+            println!("Error: Can't find \"cutpoint_moderate\" attribute in the [parsing] section of config.ini");
+            return;
+        },
+    };
+
+    let cutpoint_moderate: i32 = match cutpoint_moderate_ref {
+        Some(f) => match f.clone().parse() {
+            Ok(v) => v,
+            Err(_) => {
+                println!("Error: Can't parse \"cutpoint_moderate\" attribute in the [parsing] section of config.ini. Must be an integer");
+                return;
+            },
+        },
+        None => {
+            println!("Error: Can't find \"cutpoint_moderate\" attribute in the [parsing] section of config.ini");
+            return;
+        },
+    };
+
+    // parsing - cutpoint_vigorus
+    let cutpoint_vigorus_ref = match parsing_config.get("cutpoint_vigorus") {
+        Some(f) => f,
+        None => {
+            println!("Error: Can't find \"cutpoint_vigorus\" attribute in the [parsing] section of config.ini");
+            return;
+        },
+    };
+
+    let cutpoint_vigorus: i32 = match cutpoint_vigorus_ref {
+        Some(f) => match f.clone().parse() {
+            Ok(v) => v,
+            Err(_) => {
+                println!("Error: Can't parse \"cutpoint_vigorus\" attribute in the [parsing] section of config.ini. Must be an integer");
                 return;
             },
         },
@@ -337,7 +446,21 @@ fn main() {
     
     println!("{:#?}", sensor_data.keys());
 
-    summarize(sensor_data, output_file, &date_format, &decimals_format);
+    match summarize(
+        sensor_data,
+        output_file, 
+        &date_format, 
+        &time_format,
+        &decimals_format, 
+        epoch_seconds,
+        cutpoint_low,
+        cutpoint_moderate,
+        cutpoint_vigorus,
+        weekend_color,
+    ) {
+        Ok(_) => println!("Done!"),
+        Err(e) => println!("Error: {:#?}", e.to_string()),
+    };
 
 }
 
@@ -432,14 +555,30 @@ fn sorted_dates<T>(map: &HashMap<NaiveDate, T>) -> Vec<NaiveDate> {
     dates
 }
 
-fn summarize(sensor_data: HashMap<NaiveDate, Vec<SensorEntry>>, out_file: String, date_format: &str, decimal_format: &str) -> Result<(), XlsxError> {
+fn summarize(
+    sensor_data: HashMap<NaiveDate, Vec<SensorEntry>>, 
+    out_file: String, 
+    date_format: &str, 
+    time_format: &str, 
+    decimal_format: &str, 
+    epoch_time: i32,
+    cutpoint_low: i32,
+    cutpoint_moderate: i32,
+    cutpoint_vigorus: i32,
+    weekend_color: u32,
+) -> Result<(), Box<dyn Error>> {
     let mut workbook = Workbook::new();
-    let mut sheet =  workbook.add_worksheet();
+    let sheet =  workbook.add_worksheet();
 
-    let bold_format = Format::new().set_bold();
-    let decimal_format = Format::new().set_num_format(decimal_format);
-    let date_format = Format::new().set_num_format(date_format);
+    let mut basic_format = Format::new();
+    let bold_format = Format::new().set_bold().set_border(FormatBorder::Hair);
+    let mut decimal_format = Format::new().set_num_format(decimal_format);
+    let mut date_format = Format::new().set_num_format(date_format);
+    let mut time_format = Format::new().set_num_format(time_format);
+    let mut weekend_format = Format::new().set_background_color(Color::RGB(weekend_color));
 
+
+    
 
     let columns = vec![
         "Day",
@@ -449,8 +588,8 @@ fn summarize(sensor_data: HashMap<NaiveDate, Vec<SensorEntry>>, out_file: String
         "Total Mod.",
         "Total Low",
         "Total Sed.",
-        "Con. Vig.",
-        "Con. Mod.",
+        // "Con. Vig.",
+        // "Con. Mod.",
         "T. Non-zero",
         "T. Zero",
         "T. Empty",
@@ -460,36 +599,50 @@ fn summarize(sensor_data: HashMap<NaiveDate, Vec<SensorEntry>>, out_file: String
     ];
 
     for i in 0..columns.len() {
-        sheet.write(0, i as u16, columns[i])?;
+        sheet.set_column_width(i as u16, 10)?;
+        sheet.write_with_format(0, i as u16, columns[i], &bold_format)?;
     }
 
     for (index, day) in sorted_dates(&sensor_data).into_iter().enumerate() {
         let row = (index + 1) as u32;
 
+        if day.weekday() == Weekday::Sat || day.weekday() == Weekday::Sun {
+            basic_format = basic_format.set_background_color(weekend_color).set_border(FormatBorder::Hair);
+            decimal_format = decimal_format.set_background_color(weekend_color).set_border(FormatBorder::Hair);
+            date_format = date_format.set_background_color(weekend_color).set_border(FormatBorder::Hair);
+            time_format = time_format.set_background_color(weekend_color).set_border(FormatBorder::Hair);
+            weekend_format = weekend_format.set_background_color(weekend_color).set_border(FormatBorder::Hair);
+        } else {
+            basic_format = basic_format.set_background_color(Color::White).set_border(FormatBorder::Hair);
+            decimal_format = decimal_format.set_background_color(Color::White).set_border(FormatBorder::Hair);
+            date_format = date_format.set_background_color(Color::White).set_border(FormatBorder::Hair);
+            time_format = time_format.set_background_color(Color::White).set_border(FormatBorder::Hair);
+            weekend_format = weekend_format.set_background_color(Color::White).set_border(FormatBorder::Hair);
+        }
+        
 
         for col_name in columns.iter() {
             let position = columns.iter().position(|n| n == col_name).unwrap() as u16;
 
             match *col_name {
-                "Day" => sheet.write(row,position, row)?,
-                "Date" => sheet.write_with_format(row,position, &calc_day(&day)?, &date_format)?,
-                "Weekday" => sheet.write(row,position, calc_weekday(&day))?,
-                "Total Vig." => sheet.write(row,position, calc_total_vig(sensor_data.get(&day)))?,
-                "Total Mod." => sheet.write(row,position, calc_total_mod(sensor_data.get(&day)))?,
-                "Total Low" => sheet.write(row,position, calc_total_low(sensor_data.get(&day)))?,
-                "Total Sed." => sheet.write(row,position, calc_total_sed(sensor_data.get(&day)))?,
-                "Con. Vig." => sheet.write(row,position, calc_con_vig(sensor_data.get(&day)))?,
-                "Con. Mod." => sheet.write(row,position, calc_con_mod(sensor_data.get(&day)))?,
-                "T. Non-zero" => sheet.write(row,position, calc_t_non_zero(sensor_data.get(&day)))?,
-                "T. Zero" => sheet.write(row,position, calc_t_zero(sensor_data.get(&day)))?,
-                "T. Empty" => sheet.write(row,position, calc_t_empty(sensor_data.get(&day)))?,
-                "Tot Counts" => sheet.write(row,position, calc_tot_counts(sensor_data.get(&day)))?,
-                "Ave Counts/Min" => sheet.write(row,position, calc_ave_counts_min(sensor_data.get(&day)))?,
-                "Ave Counts/Epoch" => sheet.write(row,position, calc_ave_counts_epoch(sensor_data.get(&day)))?,
-                _ => sheet.write(row,position, "Not handled!")?,
+                "Day"               => sheet.write_with_format(row,position, row, &basic_format)?,
+                "Date"              => sheet.write_with_format(row,position, &calc_date(&day)?, &date_format)?,
+                "Weekday"           => sheet.write_with_format(row,position, calc_weekday(&day), &basic_format)?,
+                "Total Vig."        => sheet.write_with_format(row,position, &calc_total_vig(sensor_data.get(&day), epoch_time, cutpoint_vigorus)?, &time_format)?,
+                "Total Mod."        => sheet.write_with_format(row,position, &calc_total_mod(sensor_data.get(&day), epoch_time, cutpoint_moderate, cutpoint_vigorus)?, &time_format)?,
+                "Total Low"         => sheet.write_with_format(row,position, &calc_total_low(sensor_data.get(&day), epoch_time, cutpoint_low, cutpoint_moderate)?, &time_format)?,
+                "Total Sed."        => sheet.write_with_format(row,position, &calc_total_sed(sensor_data.get(&day), epoch_time, cutpoint_low)?, &time_format)?,
+                // "Con. Vig."         => sheet.write(row,position, calc_con_vig(sensor_data.get(&day)))?,
+                // "Con. Mod."         => sheet.write(row,position, calc_con_mod(sensor_data.get(&day)))?,
+                "T. Non-zero"       => sheet.write_with_format(row,position, &calc_t_non_zero(sensor_data.get(&day), epoch_time)?, &time_format)?,
+                "T. Zero"           => sheet.write_with_format(row,position, &calc_t_zero(sensor_data.get(&day), epoch_time)?, &time_format)?,
+                "T. Empty"          => sheet.write_with_format(row,position, &calc_t_empty(sensor_data.get(&day), epoch_time)?, &time_format)?,
+                "Tot Counts"        => sheet.write_with_format(row,position, calc_tot_counts(sensor_data.get(&day)), &basic_format)?,
+                "Ave Counts/Min"    => sheet.write_with_format(row,position, calc_ave_counts_min(sensor_data.get(&day), epoch_time), &decimal_format)?,
+                "Ave Counts/Epoch"  => sheet.write_with_format(row,position, calc_ave_counts_epoch(sensor_data.get(&day), epoch_time), &decimal_format)?,
+                _                   => sheet.write_with_format(row,position, "Not handled!", &basic_format)?,
             };
         }
-
     }
 
 
@@ -498,62 +651,200 @@ fn summarize(sensor_data: HashMap<NaiveDate, Vec<SensorEntry>>, out_file: String
     Ok(())
 }
 
-fn calc_ave_counts_epoch(day: Option<&Vec<SensorEntry>>) -> String {
-    "".to_string()
+fn calc_ave_counts_min(
+    day: Option<&Vec<SensorEntry>>,
+    epoch_time: i32,
+) -> f32 {
+    let day = match day {
+        Some(day) => day,
+        None => return -99.,
+    };
+    day.iter().map(|s| s.value).sum::<i32>() as f32 / (day.len() as f32 / (60. / epoch_time as f32) )
 }
 
-fn calc_ave_counts_min(day: Option<&Vec<SensorEntry>>) -> String {
-    "".to_string()
+fn calc_ave_counts_epoch(
+    day: Option<&Vec<SensorEntry>>,
+    epoch_time: i32,
+) -> f32 {
+    let avg = calc_ave_counts_min(day, epoch_time);
+    avg / (60. / epoch_time as f32)
+}
+
+fn avg_count(day: &Vec<SensorEntry>) -> f32 {
+    day
+        .iter()
+        .map(|s| s.value)
+        .sum::<i32>() as f32 
+            / (day.len() as f32)
 }
 
 fn calc_tot_counts(day: Option<&Vec<SensorEntry>>) -> String {
-    "".to_string()
+    let day = match day {
+        Some(day) => day,
+        None => return "No data".to_string(),
+    };
+    format!("{}", day.iter().map(|s| s.value).sum::<i32>())
 }
 
-fn calc_t_empty(day: Option<&Vec<SensorEntry>>) -> String {
-    "".to_string()
+fn calc_t_empty(
+    day: Option<&Vec<SensorEntry>>,
+    epoch_time: i32,
+) -> Result<ExcelDateTime, Box<dyn Error>>  {
+    let day = match day {
+        Some(day) => day,
+        None => return Err("No data".to_string().into()),
+    };
+
+    let mut count = 0;
+    for entry in day.iter() {
+        if entry.value == -1 {
+            count += 1;
+        }
+    }
+    count *= epoch_time;
+    seconds_to_edt(count)
 }
 
-fn calc_t_zero(day: Option<&Vec<SensorEntry>>) -> String {
-    "".to_string()
+fn calc_t_zero(
+    day: Option<&Vec<SensorEntry>>,
+    epoch_time: i32,
+) -> Result<ExcelDateTime, Box<dyn Error>> {
+    let day = match day {
+        Some(day) => day,
+        None => return Err("No data".to_string().into()),
+    };
+
+    let mut count = 0;
+    for entry in day.iter() {
+        if entry.value == 0 {
+            count += 1;
+        }
+    }
+    count *= epoch_time;
+    seconds_to_edt(count)
 }
 
-fn calc_t_non_zero(day: Option<&Vec<SensorEntry>>) -> String {
-    "".to_string()
+fn calc_t_non_zero(
+    day: Option<&Vec<SensorEntry>>,
+    epoch_time: i32,
+) -> Result<ExcelDateTime, Box<dyn Error>> {
+    let day = match day {
+        Some(day) => day,
+        None => return Err("No data".to_string().into()),
+    };
+
+    let mut count = 0;
+    for entry in day.iter() {
+        if entry.value > 0 {
+            count += 1;
+        }
+    }
+    count *= epoch_time;
+    seconds_to_edt(count)
 }
 
-fn calc_con_mod(day: Option<&Vec<SensorEntry>>) -> String {
-    "".to_string()
+// fn calc_con_mod(day: Option<&Vec<SensorEntry>>) -> String {
+//     "".to_string()
+// }
+
+// fn calc_con_vig(day: Option<&Vec<SensorEntry>>) -> String {
+//     "".to_string()
+// }
+
+fn calc_total_sed(
+    day: Option<&Vec<SensorEntry>>, 
+    epoch_time: i32, 
+    cutpoint_low: i32
+) -> Result<ExcelDateTime, Box<dyn Error>> {
+    let day = match day {
+        Some(day) => day,
+        None => return Err("No data".to_string().into()),
+    };
+
+    let mut count = 0;
+    for entry in day.iter() {
+        if entry.value < cutpoint_low {
+            count += 1;
+        }
+    }
+    count *= epoch_time;
+    seconds_to_edt(count)
 }
 
-fn calc_con_vig(day: Option<&Vec<SensorEntry>>) -> String {
-    "".to_string()
+fn calc_total_low(
+    day: Option<&Vec<SensorEntry>>, 
+    epoch_time: i32,
+    cutpoint_low: i32,
+    cutpoint_moderate: i32,
+) -> Result<ExcelDateTime, Box<dyn Error>> {
+    let day = match day {
+        Some(day) => day,
+        None => return Err("No data".to_string().into()),
+    };
+
+    let mut count = 0;
+    for entry in day.iter() {
+        if entry.value >= cutpoint_low && entry.value < cutpoint_moderate{
+            count += 1;
+        }
+    }
+    count *= epoch_time;
+    seconds_to_edt(count)
 }
 
-fn calc_total_sed(day: Option<&Vec<SensorEntry>>) -> String {
-    "".to_string()
+fn calc_total_mod(
+    day: Option<&Vec<SensorEntry>>, 
+    epoch_time: i32,
+    cutpoint_moderate: i32,
+    cutpoint_vigorus: i32,
+) -> Result<ExcelDateTime, Box<dyn Error>> {
+    let day = match day {
+        Some(day) => day,
+        None => return Err("No data".to_string().into()),
+    };
+
+    let mut count = 0;
+    for entry in day.iter() {
+        if entry.value >= cutpoint_moderate && entry.value < cutpoint_vigorus{
+            count += 1;
+        }
+    }
+    count *= epoch_time;
+    seconds_to_edt(count)
 }
 
-fn calc_total_low(day: Option<&Vec<SensorEntry>>) -> String {
-    "".to_string()
-}
+fn calc_total_vig(day: Option<&Vec<SensorEntry>>, epoch_time: i32, cutpoint_vigorus: i32) -> Result<ExcelDateTime, Box<dyn Error>> {
+    let day = match day {
+        Some(day) => day,
+        None => return Err("No data".to_string().into()),
+    };
 
-fn calc_total_mod(day: Option<&Vec<SensorEntry>>) -> String {
-    "".to_string()
-}
-
-fn calc_total_vig(day: Option<&Vec<SensorEntry>>) -> String {
-    "".to_string()
+    let mut count = 0;
+    for entry in day.iter() {
+        if entry.value >= cutpoint_vigorus {
+            count += 1;
+        }
+    }
+    count *= epoch_time;
+    seconds_to_edt(count)
 }
 
 fn calc_weekday(date: &NaiveDate) -> String {
     date.format("%a").to_string()
 }
 
-fn calc_date(day: Option<&Vec<SensorEntry>>) -> String {
-    "".to_string()
+fn calc_date(day: &NaiveDate) -> Result<ExcelDateTime, rust_xlsxwriter::XlsxError> {
+    ExcelDateTime::from_ymd(day.year() as u16, day.month() as u8, day.day() as u8)
 }
 
-fn calc_day(day: &NaiveDate) -> Result<ExcelDateTime, rust_xlsxwriter::XlsxError> {
-    ExcelDateTime::from_ymd(day.year() as u16, day.month() as u8, day.day() as u8)
+fn seconds_to_edt(seconds: i32) -> Result<ExcelDateTime, Box<dyn Error>> {
+    let hours: u16 = (seconds / 3600).try_into().unwrap();
+    let remainder = seconds % 3600;
+    let minutes: u8 = (remainder / 60).try_into().unwrap();
+    let seconds: u8 = (remainder % 60).try_into().unwrap();
+    let seconds_f = seconds as f64; // convert to f64 for ExcelDateTime
+    match ExcelDateTime::from_hms(hours, minutes, seconds_f) {
+        Ok(d) => Ok(d),
+        Err(e) => Err(e.into()),
+    }
 }
