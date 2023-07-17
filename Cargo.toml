@@ -6,3 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+calamine = "0.21.2"
+chrono = "0.4.26"
+configparser = "3.0.2"
+rust_xlsxwriter = "0.42.0"
