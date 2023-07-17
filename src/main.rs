@@ -3,6 +3,7 @@ use std::collections::{HashMap, btree_map::Values};
 use calamine::{open_workbook, Xlsx, Reader};
 use chrono::{NaiveDate, NaiveTime, Duration};
 use configparser::ini::Ini;
+use rust_xlsxwriter::{XlsxError, Workbook, Format};
 
 #[derive(Debug, PartialEq)]
 enum Mode {
@@ -95,7 +96,7 @@ fn main() {
         },
     };
 
-    let parsing_config: &HashMap<String, Option<String>> = match config.get("parsing") {
+    let parsing_config = match config.get("parsing") {
         Some(f) => f,
         None => {
             println!("Error: Can't find [general] section config.ini");
@@ -103,7 +104,15 @@ fn main() {
         },
     };
 
+    let format_config = match config.get("format") {
+        Some(f) => f,
+        None => {
+            println!("Error: Can't find [general] section config.ini");
+            return;
+        },
+    };
 
+    // general - input_file
     let input_file_ref = match general_config.get("input_file") {
         Some(f) => f,
         None => {
@@ -120,6 +129,7 @@ fn main() {
         },
     };
 
+    // general - input_file_sheet
     let input_file_sheet_ref = match general_config.get("input_file_sheet") {
         Some(f) => f,
         None => {
@@ -136,6 +146,58 @@ fn main() {
         },
     };
 
+    // general - output_file
+    let output_file_ref = match general_config.get("output_file") {
+        Some(f) => f,
+        None => {
+            println!("Error: Can't find \"output_file\" attribute in the [general] section of config.ini");
+            return;
+        },
+    };
+
+    let output_file = match output_file_ref {
+        Some(f) => f.clone(),
+        None => {
+            println!("Error: Can't find \"output_file\" attribute in the [general] section of config.ini");
+            return;
+        },
+    };
+
+    // format - output_number_decimals 
+    let decimals_format_ref = match format_config.get("decimals") {
+        Some(f) => f,
+        None => {
+            println!("Error: Can't find \"decimals\" attribute in the [format] section of config.ini");
+            return;
+        },
+    };
+
+    let decimals_format = match decimals_format_ref {
+        Some(f) => f.clone(),
+        None => {
+            println!("Error: Can't find \"decimals\" attribute in the [format] section of config.ini");
+            return;
+        },
+    };
+    
+    // format - date_format 
+    let date_format_ref = match format_config.get("date") {
+        Some(f) => f,
+        None => {
+            println!("Error: Can't find \"date\" attribute in the [format] section of config.ini");
+            return;
+        },
+    };
+
+    let date_format = match date_format_ref {
+        Some(f) => f.clone(),
+        None => {
+            println!("Error: Can't find \"date\" attribute in the [format] section of config.ini");
+            return;
+        },
+    };
+
+    // parsing - skip_days_num
     let skip_days_num_ref = match parsing_config.get("skip_days_num") {
         Some(f) => f,
         None => {
@@ -158,6 +220,7 @@ fn main() {
         },
     };
 
+    // parsing - day_window_size
     let day_window_size_ref = match parsing_config.get("day_window_size") {
         Some(f) => f,
         None => {
@@ -176,6 +239,29 @@ fn main() {
         },
         None => {
             println!("Error: Can't find \"day_window_size\" attribute in the [parsing] section of config.ini");
+            return;
+        },
+    };
+
+    // parsing - epoch_seconds
+    let epoch_seconds_ref = match parsing_config.get("epoch_seconds") {
+        Some(f) => f,
+        None => {
+            println!("Error: Can't find \"epoch_seconds\" attribute in the [parsing] section of config.ini");
+            return;
+        },
+    };
+
+    let epoch_seconds: i32 = match epoch_seconds_ref {
+        Some(f) => match f.clone().parse() {
+            Ok(v) => v,
+            Err(e) => {
+                println!("Error: Can't parse \"epoch_seconds\" attribute in the [parsing] section of config.ini. Must be an integer");
+                return;
+            },
+        },
+        None => {
+            println!("Error: Can't find \"epoch_seconds\" attribute in the [parsing] section of config.ini");
             return;
         },
     };
@@ -251,7 +337,11 @@ fn main() {
     
     println!("{:#?}", sensor_data.keys());
 
+    summarize(sensor_data, output_file, &date_format, &decimals_format);
+
 }
+
+
 
 fn is_header_row(row: &[calamine::DataType]) -> bool {
     match &row[0] {
@@ -334,4 +424,47 @@ fn extract_Y_N(cell: &calamine::DataType) -> Option<bool> {
         },
         _ => None,
     }
+}
+
+fn sorted_dates<T>(map: &HashMap<NaiveDate, T>) -> Vec<NaiveDate> {
+    let mut dates: Vec<_> = map.keys().cloned().collect();
+    dates.sort();
+    dates
+}
+
+fn summarize(sensor_data: HashMap<NaiveDate, Vec<SensorEntry>>, out_file: String, date_format: &str, decimal_format: &str) -> Result<(), XlsxError> {
+    let mut workbook = Workbook::new();
+    let mut sheet =  workbook.add_worksheet();
+
+    let bold_format = Format::new().set_bold();
+    let decimal_format = Format::new().set_num_format(decimal_format);
+    let date_format = Format::new().set_num_format(date_format);
+
+
+    let columns = vec![
+        "Day",
+        "Date",
+        "Weekday",
+        "Total Vig.",
+        "Total Mod.",
+        "Total Low",
+        "Total Sed.",
+        "Con. Vig.",
+        "Con. Mod.",
+        "T. Non-zero",
+        "T. Zero",
+        "T. Empty",
+        "Tot Counts",
+        "Ave Counts/Min",
+        "Ave Counts/Epoch",
+
+    ]
+
+
+    for (index, day) in sorted_dates(&sensor_data).into_iter().enumerate() {
+
+    }
+
+    
+    Ok(())
 }
