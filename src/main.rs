@@ -1,9 +1,9 @@
-use std::collections::{HashMap, btree_map::Values};
+use std::{collections::{HashMap, btree_map::Values}, ops::Index};
 
 use calamine::{open_workbook, Xlsx, Reader};
-use chrono::{NaiveDate, NaiveTime, Duration};
+use chrono::{NaiveDate, NaiveTime, Duration, Datelike};
 use configparser::ini::Ini;
-use rust_xlsxwriter::{XlsxError, Workbook, Format};
+use rust_xlsxwriter::{XlsxError, Workbook, Format, ExcelDateTime};
 
 #[derive(Debug, PartialEq)]
 enum Mode {
@@ -457,14 +457,103 @@ fn summarize(sensor_data: HashMap<NaiveDate, Vec<SensorEntry>>, out_file: String
         "Tot Counts",
         "Ave Counts/Min",
         "Ave Counts/Epoch",
+    ];
 
-    ]
-
+    for i in 0..columns.len() {
+        sheet.write(0, i as u16, columns[i])?;
+    }
 
     for (index, day) in sorted_dates(&sensor_data).into_iter().enumerate() {
+        let row = (index + 1) as u32;
+
+
+        for col_name in columns.iter() {
+            let position = columns.iter().position(|n| n == col_name).unwrap() as u16;
+
+            match *col_name {
+                "Day" => sheet.write(row,position, row)?,
+                "Date" => sheet.write_with_format(row,position, &calc_day(&day)?, &date_format)?,
+                "Weekday" => sheet.write(row,position, calc_weekday(&day))?,
+                "Total Vig." => sheet.write(row,position, calc_total_vig(sensor_data.get(&day)))?,
+                "Total Mod." => sheet.write(row,position, calc_total_mod(sensor_data.get(&day)))?,
+                "Total Low" => sheet.write(row,position, calc_total_low(sensor_data.get(&day)))?,
+                "Total Sed." => sheet.write(row,position, calc_total_sed(sensor_data.get(&day)))?,
+                "Con. Vig." => sheet.write(row,position, calc_con_vig(sensor_data.get(&day)))?,
+                "Con. Mod." => sheet.write(row,position, calc_con_mod(sensor_data.get(&day)))?,
+                "T. Non-zero" => sheet.write(row,position, calc_t_non_zero(sensor_data.get(&day)))?,
+                "T. Zero" => sheet.write(row,position, calc_t_zero(sensor_data.get(&day)))?,
+                "T. Empty" => sheet.write(row,position, calc_t_empty(sensor_data.get(&day)))?,
+                "Tot Counts" => sheet.write(row,position, calc_tot_counts(sensor_data.get(&day)))?,
+                "Ave Counts/Min" => sheet.write(row,position, calc_ave_counts_min(sensor_data.get(&day)))?,
+                "Ave Counts/Epoch" => sheet.write(row,position, calc_ave_counts_epoch(sensor_data.get(&day)))?,
+                _ => sheet.write(row,position, "Not handled!")?,
+            };
+        }
 
     }
 
+
+    workbook.save(out_file)?;
     
     Ok(())
+}
+
+fn calc_ave_counts_epoch(day: Option<&Vec<SensorEntry>>) -> String {
+    "".to_string()
+}
+
+fn calc_ave_counts_min(day: Option<&Vec<SensorEntry>>) -> String {
+    "".to_string()
+}
+
+fn calc_tot_counts(day: Option<&Vec<SensorEntry>>) -> String {
+    "".to_string()
+}
+
+fn calc_t_empty(day: Option<&Vec<SensorEntry>>) -> String {
+    "".to_string()
+}
+
+fn calc_t_zero(day: Option<&Vec<SensorEntry>>) -> String {
+    "".to_string()
+}
+
+fn calc_t_non_zero(day: Option<&Vec<SensorEntry>>) -> String {
+    "".to_string()
+}
+
+fn calc_con_mod(day: Option<&Vec<SensorEntry>>) -> String {
+    "".to_string()
+}
+
+fn calc_con_vig(day: Option<&Vec<SensorEntry>>) -> String {
+    "".to_string()
+}
+
+fn calc_total_sed(day: Option<&Vec<SensorEntry>>) -> String {
+    "".to_string()
+}
+
+fn calc_total_low(day: Option<&Vec<SensorEntry>>) -> String {
+    "".to_string()
+}
+
+fn calc_total_mod(day: Option<&Vec<SensorEntry>>) -> String {
+    "".to_string()
+}
+
+fn calc_total_vig(day: Option<&Vec<SensorEntry>>) -> String {
+    "".to_string()
+}
+
+fn calc_weekday(date: &NaiveDate) -> String {
+    date.format("%a").to_string()
+}
+
+fn calc_date(day: Option<&Vec<SensorEntry>>) -> String {
+    "".to_string()
+}
+
+fn calc_day(day: &NaiveDate) -> Result<ExcelDateTime, rust_xlsxwriter::XlsxError> {
+    ExcelDateTime::from_ymd(day.year() as u16, day.month() as u8, day.day() as u8)
 }
