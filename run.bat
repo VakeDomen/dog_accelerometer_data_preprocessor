@@ -1,2 +1,2 @@
-target\release\binance_trading_bot
+target\release\dog_accelerometer_data_preprocessor
 pause
