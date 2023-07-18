@@ -1,0 +1,2 @@
+target\release\binance_trading_bot
+pause
