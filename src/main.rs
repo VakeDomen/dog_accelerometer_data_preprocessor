@@ -237,6 +237,29 @@ fn main() {
         },
     };
 
+    // format - week_color 
+    let week_color_ref = match format_config.get("week_color") {
+        Some(f) => f,
+        None => {
+            println!("Error: Can't find \"week_color\" attribute in the [format] section of config.ini");
+            return;
+        },
+    };
+
+    let week_color: u32 = match week_color_ref {
+        Some(f) => match u32::from_str_radix(f, 16) {
+            Ok(v) => v,
+            Err(_) => {
+                println!("Error: Can't parse \"week_color\" attribute in the [parsing] section of config.ini. Must be an hex RGB.");
+                return;
+            },
+        }
+        None => {
+            println!("Error: Can't find \"week_color\" attribute in the [format] section of config.ini");
+            return;
+        },
+    };
+
     // parsing - skip_days_num
     let skip_days_num_ref = match parsing_config.get("skip_days_num") {
         Some(f) => f,
@@ -457,6 +480,7 @@ fn main() {
         cutpoint_moderate,
         cutpoint_vigorus,
         weekend_color,
+        week_color,
     ) {
         Ok(_) => println!("Done!"),
         Err(e) => println!("Error: {:#?}", e.to_string()),
@@ -566,16 +590,19 @@ fn summarize(
     cutpoint_moderate: i32,
     cutpoint_vigorus: i32,
     weekend_color: u32,
+    week_color: u32,
 ) -> Result<(), Box<dyn Error>> {
     let mut workbook = Workbook::new();
     let sheet =  workbook.add_worksheet();
+    sheet.set_name("Daily")?;
 
     let mut basic_format = Format::new();
     let bold_format = Format::new().set_bold().set_border(FormatBorder::Hair);
     let mut decimal_format = Format::new().set_num_format(decimal_format);
     let mut date_format = Format::new().set_num_format(date_format);
     let mut time_format = Format::new().set_num_format(time_format);
-    let mut weekend_format = Format::new().set_background_color(Color::RGB(weekend_color));
+    let mut weekend_format = Format::new().set_font_color(Color::RGB(weekend_color));
+
 
 
     
@@ -602,22 +629,23 @@ fn summarize(
         sheet.set_column_width(i as u16, 10)?;
         sheet.write_with_format(0, i as u16, columns[i], &bold_format)?;
     }
-
+    let mut week_counter = 0;
+    let mut current_week_color = Color::White;
     for (index, day) in sorted_dates(&sensor_data).into_iter().enumerate() {
         let row = (index + 1) as u32;
 
         if day.weekday() == Weekday::Sat || day.weekday() == Weekday::Sun {
-            basic_format = basic_format.set_background_color(weekend_color).set_border(FormatBorder::Hair);
-            decimal_format = decimal_format.set_background_color(weekend_color).set_border(FormatBorder::Hair);
-            date_format = date_format.set_background_color(weekend_color).set_border(FormatBorder::Hair);
-            time_format = time_format.set_background_color(weekend_color).set_border(FormatBorder::Hair);
-            weekend_format = weekend_format.set_background_color(weekend_color).set_border(FormatBorder::Hair);
+            basic_format = basic_format.set_font_color(weekend_color).set_border(FormatBorder::Hair).set_background_color(current_week_color);
+            decimal_format = decimal_format.set_font_color(weekend_color).set_border(FormatBorder::Hair).set_background_color(current_week_color);
+            date_format = date_format.set_font_color(weekend_color).set_border(FormatBorder::Hair).set_background_color(current_week_color);
+            time_format = time_format.set_font_color(weekend_color).set_border(FormatBorder::Hair).set_background_color(current_week_color);
+            weekend_format = weekend_format.set_font_color(weekend_color).set_border(FormatBorder::Hair).set_background_color(current_week_color);
         } else {
-            basic_format = basic_format.set_background_color(Color::White).set_border(FormatBorder::Hair);
-            decimal_format = decimal_format.set_background_color(Color::White).set_border(FormatBorder::Hair);
-            date_format = date_format.set_background_color(Color::White).set_border(FormatBorder::Hair);
-            time_format = time_format.set_background_color(Color::White).set_border(FormatBorder::Hair);
-            weekend_format = weekend_format.set_background_color(Color::White).set_border(FormatBorder::Hair);
+            basic_format = basic_format.set_font_color(Color::Black).set_border(FormatBorder::Hair).set_background_color(current_week_color);
+            decimal_format = decimal_format.set_font_color(Color::Black).set_border(FormatBorder::Hair).set_background_color(current_week_color);
+            date_format = date_format.set_font_color(Color::Black).set_border(FormatBorder::Hair).set_background_color(current_week_color);
+            time_format = time_format.set_font_color(Color::Black).set_border(FormatBorder::Hair).set_background_color(current_week_color);
+            weekend_format = weekend_format.set_font_color(Color::Black).set_border(FormatBorder::Hair).set_background_color(current_week_color);
         }
         
 
@@ -643,12 +671,224 @@ fn summarize(
                 _                   => sheet.write_with_format(row,position, "Not handled!", &basic_format)?,
             };
         }
+
+        week_counter += 1;
+        if week_counter >= 7 {
+            week_counter = 0;
+            if current_week_color == Color::White {
+                current_week_color = Color::RGB(week_color);
+            } else {
+                current_week_color = Color::White;
+            }
+        }
     }
 
 
+    let sheet =  workbook.add_worksheet();
+    sheet.set_name("Weekly")?;
+
+    let columns = vec![
+        "Label",
+        "Total Vig.",
+        "Total Mod.",
+        "Total Low",
+        "Total Sed.",
+        "T. Non-zero",
+        "T. Zero",
+        "T. Empty",
+        "Tot Counts",
+        "Ave Counts/Min",
+        "Ave Counts/Epoch",
+    ];
+
+    for i in 0..columns.len() {
+        sheet.set_column_width(i as u16, 10)?;
+        sheet.write_with_format(0, i as u16, columns[i], &bold_format)?;
+    }
+
+    let mut weekends: Vec<Vec<u32>> = vec![];
+    let mut current_weekend: Vec<u32> = vec![];
+    let mut weekdays: Vec<Vec<u32>> = vec![];
+    let mut current_weekdays: Vec<u32> = vec![];
+
+    for (index, day) in sorted_dates(&sensor_data).into_iter().enumerate() {
+        let row = (index + 2) as u32;
+        if day.weekday() == Weekday::Sat || day.weekday() == Weekday::Sun {
+            current_weekend.push(row);
+            if current_weekend.len() == 2 {
+                weekends.push(current_weekend.clone());
+                current_weekend = vec![];
+            }
+            continue;
+        }
+
+        current_weekdays.push(row);
+        if current_weekdays.len() == 5 {
+            weekdays.push(current_weekdays.clone());
+            current_weekdays = vec![];
+        }
+    }
+
+    
+    let mut last_row = 0;
+    for i in 0..weekdays.len() {
+        last_row += 1;
+        let current_weekdays = match weekdays.get(i) {
+            Some(w) => w,
+            None => continue,
+        };
+        let current_weekend = match weekends.get(i) {
+            Some(w) => w,
+            None => continue,
+        };
+        let mut days = current_weekdays.clone();
+        days.push(current_weekend[0]);
+        days.push(current_weekend[1]);
+        println!("{:#?} {}", days, last_row);
+        for col_name in columns.iter() {
+            let position = columns.iter().position(|n| n == col_name).unwrap() as u16;
+            match *col_name {
+                "Label"             => sheet.write(last_row, position, format!("Teden {}", i + 1))?,
+                "Total Vig."        => sheet.write_formula_with_format(last_row,position, make_avg_formula(&days, position).as_str(), &time_format)?,
+                "Total Mod."        => sheet.write_formula_with_format(last_row,position, make_avg_formula(&days, position).as_str(), &time_format)?,
+                "Total Low"         => sheet.write_formula_with_format(last_row,position, make_avg_formula(&days, position).as_str(), &time_format)?,
+                "Total Sed."        => sheet.write_formula_with_format(last_row,position, make_avg_formula(&days, position).as_str(), &time_format)?,
+                "T. Non-zero"       => sheet.write_formula_with_format(last_row,position, make_avg_formula(&days, position).as_str(), &time_format)?,
+                "T. Zero"           => sheet.write_formula_with_format(last_row,position, make_avg_formula(&days, position).as_str(), &time_format)?,
+                "T. Empty"          => sheet.write_formula_with_format(last_row,position, make_avg_formula(&days, position).as_str(), &time_format)?,
+                "Tot Counts"        => sheet.write_formula_with_format(last_row,position, make_avg_formula(&days, position).as_str(), &decimal_format)?,
+                "Ave Counts/Min"    => sheet.write_formula_with_format(last_row,position, make_avg_formula(&days, position).as_str(), &decimal_format)?,
+                "Ave Counts/Epoch"  => sheet.write_formula_with_format(last_row,position, make_avg_formula(&days, position).as_str(), &decimal_format)?,
+                _                   => sheet.write_with_format(last_row,position, "Not handled!", &basic_format)?,
+            };
+        }
+
+    }
+
+    last_row += 1;
+    last_row += 1;
+    let columns = vec![
+        "Label",
+        "Total Vig.",
+        "Total Mod.",
+        "Total Low",
+        "Total Sed.",
+        "T. Non-zero",
+        "T. Zero",
+        "T. Empty",
+        "Tot Counts",
+        "Ave Counts/Min",
+        "Ave Counts/Epoch",
+    ];
+
+    for i in 0..columns.len() {
+        sheet.set_column_width(i as u16, 10)?;
+        sheet.write_with_format(last_row, i as u16, columns[i], &bold_format)?;
+    }
+
+    for i in 0..weekends.len() {
+        last_row += 1;
+        for col_name in columns.iter() {
+            let position = columns.iter().position(|n| n == col_name).unwrap() as u16;
+            let current_weekend = match weekends.get(i) {
+                Some(w) => w,
+                None => continue,
+            };
+            match *col_name {
+                "Label"             => sheet.write(last_row, position, format!("Vikend {}", i + 1))?,
+                "Total Vig."        => sheet.write_formula_with_format(last_row,position, make_avg_formula(&current_weekend.to_vec(), position).as_str(), &time_format)?,
+                "Total Mod."        => sheet.write_formula_with_format(last_row,position, make_avg_formula(&current_weekend.to_vec(), position).as_str(), &time_format)?,
+                "Total Low"         => sheet.write_formula_with_format(last_row,position, make_avg_formula(&current_weekend.to_vec(), position).as_str(), &time_format)?,
+                "Total Sed."        => sheet.write_formula_with_format(last_row,position, make_avg_formula(&current_weekend.to_vec(), position).as_str(), &time_format)?,
+                "T. Non-zero"       => sheet.write_formula_with_format(last_row,position, make_avg_formula(&current_weekend.to_vec(), position).as_str(), &time_format)?,
+                "T. Zero"           => sheet.write_formula_with_format(last_row,position, make_avg_formula(&current_weekend.to_vec(), position).as_str(), &time_format)?,
+                "T. Empty"          => sheet.write_formula_with_format(last_row,position, make_avg_formula(&current_weekend.to_vec(), position).as_str(), &time_format)?,
+                "Tot Counts"        => sheet.write_formula_with_format(last_row,position, make_avg_formula(&current_weekend.to_vec(), position).as_str(), &decimal_format)?,
+                "Ave Counts/Min"    => sheet.write_formula_with_format(last_row,position, make_avg_formula(&current_weekend.to_vec(), position).as_str(), &decimal_format)?,
+                "Ave Counts/Epoch"  => sheet.write_formula_with_format(last_row,position, make_avg_formula(&current_weekend.to_vec(), position).as_str(), &decimal_format)?,
+                _                   => sheet.write_with_format(last_row,position, "Not handled!", &basic_format)?,
+            };
+        }
+
+    }
+
+    last_row += 1;
+    last_row += 1;
+    let columns = vec![
+        "Label",
+        "Total Vig.",
+        "Total Mod.",
+        "Total Low",
+        "Total Sed.",
+        "T. Non-zero",
+        "T. Zero",
+        "T. Empty",
+        "Tot Counts",
+        "Ave Counts/Min",
+        "Ave Counts/Epoch",
+    ];
+    
+    for i in 0..columns.len() {
+        sheet.set_column_width(i as u16, 10)?;
+        sheet.write_with_format(last_row, i as u16, columns[i], &bold_format)?;
+    }
+
+    for i in 0..weekdays.len() {
+        last_row += 1;
+        for col_name in columns.iter() {
+            let position = columns.iter().position(|n| n == col_name).unwrap() as u16;
+            let current_weekday = match weekdays.get(i) {
+                Some(w) => w,
+                None => continue,
+            };
+            match *col_name {
+                "Label"             => sheet.write(last_row, position, format!("Dnevi {}", i + 1))?,
+                "Total Vig."        => sheet.write_formula_with_format(last_row,position, make_avg_formula(&current_weekday.to_vec(), position).as_str(), &time_format)?,
+                "Total Mod."        => sheet.write_formula_with_format(last_row,position, make_avg_formula(&current_weekday.to_vec(), position).as_str(), &time_format)?,
+                "Total Low"         => sheet.write_formula_with_format(last_row,position, make_avg_formula(&current_weekday.to_vec(), position).as_str(), &time_format)?,
+                "Total Sed."        => sheet.write_formula_with_format(last_row,position, make_avg_formula(&current_weekday.to_vec(), position).as_str(), &time_format)?,
+                "T. Non-zero"       => sheet.write_formula_with_format(last_row,position, make_avg_formula(&current_weekday.to_vec(), position).as_str(), &time_format)?,
+                "T. Zero"           => sheet.write_formula_with_format(last_row,position, make_avg_formula(&current_weekday.to_vec(), position).as_str(), &time_format)?,
+                "T. Empty"          => sheet.write_formula_with_format(last_row,position, make_avg_formula(&current_weekday.to_vec(), position).as_str(), &time_format)?,
+                "Tot Counts"        => sheet.write_formula_with_format(last_row,position, make_avg_formula(&current_weekday.to_vec(), position).as_str(), &decimal_format)?,
+                "Ave Counts/Min"    => sheet.write_formula_with_format(last_row,position, make_avg_formula(&current_weekday.to_vec(), position).as_str(), &decimal_format)?,
+                "Ave Counts/Epoch"  => sheet.write_formula_with_format(last_row,position, make_avg_formula(&current_weekday.to_vec(), position).as_str(), &decimal_format)?,
+                _                   => sheet.write_with_format(last_row,position, "Not handled!", &basic_format)?,
+            };
+        }
+
+    }
+
     workbook.save(out_file)?;
+
     
     Ok(())
+}
+
+fn make_avg_formula(days: &Vec<u32>, position: u16) -> String {
+    let mut out = "".to_string();
+    for d in days.into_iter() {
+        let letter = position_to_letter(position);
+        out = format!("{},Daily!{}{}", out,  letter, d);
+    }
+    out.remove(0);
+    format!("=AVERAGE({})", out)
+}
+
+fn position_to_letter(position: u16) -> String {
+    match position {
+        1 => "D".to_string(),
+        2 => "E".to_string(),
+        3 => "F".to_string(),
+        4 => "G".to_string(),
+        5 => "H".to_string(),
+        6 => "I".to_string(),
+        7 => "J".to_string(),
+        8 => "K".to_string(),
+        9 => "L".to_string(),
+        10 => "M".to_string(),
+        _  => "N".to_string(),
+    }
 }
 
 fn calc_ave_counts_min(
@@ -678,12 +918,12 @@ fn avg_count(day: &Vec<SensorEntry>) -> f32 {
             / (day.len() as f32)
 }
 
-fn calc_tot_counts(day: Option<&Vec<SensorEntry>>) -> String {
+fn calc_tot_counts(day: Option<&Vec<SensorEntry>>) -> i32 {
     let day = match day {
         Some(day) => day,
-        None => return "No data".to_string(),
+        None => return -99,
     };
-    format!("{}", day.iter().map(|s| s.value).sum::<i32>())
+    day.iter().map(|s| s.value).sum::<i32>()
 }
 
 fn calc_t_empty(
