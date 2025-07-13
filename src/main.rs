@@ -3,7 +3,7 @@ use std::{collections::HashMap, error::Error};
 use calamine::{open_workbook, Xlsx, Reader};
 use chrono::{NaiveDate, NaiveTime, Duration, Datelike, Weekday};
 use configparser::ini::Ini;
-use rust_xlsxwriter::{Workbook, Format, ExcelDateTime, Color, FormatBorder};
+use rust_xlsxwriter::{Workbook, Format, ExcelDateTime, Color, FormatBorder, Chart};
 
 #[derive(Debug, PartialEq)]
 enum Mode {
@@ -731,6 +731,7 @@ fn summarize(
 
     
     let mut last_row = 0;
+    let mut num_of_weeks = 0;
     for i in 0..weekdays.len() {
         last_row += 1;
         let current_weekdays = match weekdays.get(i) {
@@ -744,7 +745,9 @@ fn summarize(
         let mut days = current_weekdays.clone();
         days.push(current_weekend[0]);
         days.push(current_weekend[1]);
-        println!("{:#?} {}", days, last_row);
+        
+        num_of_weeks += 1;
+
         for col_name in columns.iter() {
             let position = columns.iter().position(|n| n == col_name).unwrap() as u16;
             match *col_name {
@@ -858,6 +861,14 @@ fn summarize(
         }
 
     }
+
+    last_row += 2;
+
+    let mut chart = Chart::new(rust_xlsxwriter::ChartType::Line);
+    let range = format!("Weekly!I2:I{}", 2 + num_of_weeks);
+    println!("{range}");
+    chart.add_series().set_values(range.as_str());
+    sheet.insert_chart(last_row, 0, &chart)?;
 
     workbook.save(out_file)?;
 
